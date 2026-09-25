@@ -25,3 +25,8 @@ mems
 *.o
 install
 .projectBender.lock
+
+# Local RTL runs and Python output
+/hw/system/spatz_cluster/results/
+__pycache__/
+*.pyc

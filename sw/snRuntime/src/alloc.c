@@ -88,7 +88,7 @@ void snrt_alloc_init(struct snrt_team_root *team, uint32_t l3off) {
     extern uint32_t _edram;
     extern uint32_t __l3_end;
     team->allocator.l3.base =
-        ALIGN_UP((uint32_t)&_edram + l3off, MIN_CHUNK_SIZE);
+        ALIGN_UP((uintptr_t)&_edram + l3off, MIN_CHUNK_SIZE);
     team->allocator.l3.size =
         (uint32_t)&__l3_end - team->allocator.l3.base + 1;
     team->allocator.l3.next = team->allocator.l3.base;
