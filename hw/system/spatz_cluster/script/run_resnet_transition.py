@@ -13,8 +13,9 @@ import shutil
 import subprocess
 import time
 
-ROOT = Path(__file__).resolve().parents[5]
-CLUSTER = ROOT / 'spatz/hw/system/spatz_cluster'
+SPATZ_ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(os.environ.get('GVSOC_ROOT', SPATZ_ROOT.parent)).resolve()
+CLUSTER = SPATZ_ROOT / 'hw/system/spatz_cluster'
 BUILD = CLUSTER / 'sw/build'
 LAYERS = [('Conv1',12544,147,64),('Conv2',3136,576,64),('Conv3',784,1152,128),
           ('Conv4',196,2304,256),('Conv5',49,4608,512),('FinalFC',1,2048,1000)]
@@ -50,7 +51,7 @@ def prepare(layer, out):
     command(['cmake','--build',BUILD,'-j','2','--target','test-riscvTests-'+target,
              'test-riscvTests-'+target+'_check'],dst/'build.log')
     artifacts={}
-    source=ROOT/f'spatz/sw/riscvTests/isa/rv64uv/{target}.c'
+    source=SPATZ_ROOT/f'sw/riscvTests/isa/rv64uv/{target}.c'
     shutil.copy2(source,dst/source.name)
     artifacts['source_sha256']=sha(source)
     for suffix,variant in [('', 'timing'),('_check','check')]:
@@ -61,7 +62,7 @@ def prepare(layer, out):
                   header_sha256=sha(header),source_file=source.name,
                   schedule='resnet_b8_overlap' if name=='FinalFC' else 'resnet_transition',
                   baseline_manifest=str(baseline/"manifest.json"),
-                  runtime_allocator_sha256=sha(ROOT/"spatz/sw/snRuntime/src/alloc.c"),**artifacts)
+                  runtime_allocator_sha256=sha(SPATZ_ROOT/"sw/snRuntime/src/alloc.c"),**artifacts)
     (dst/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     print(f'{name}: built and frozen',flush=True)
 

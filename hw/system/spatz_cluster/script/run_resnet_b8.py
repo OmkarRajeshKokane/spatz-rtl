@@ -14,10 +14,11 @@ import signal
 import subprocess
 import time
 
-ROOT = Path(__file__).resolve().parents[5]
-CLUSTER = ROOT / 'spatz/hw/system/spatz_cluster'
+SPATZ_ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(os.environ.get('GVSOC_ROOT', SPATZ_ROOT.parent)).resolve()
+CLUSTER = SPATZ_ROOT / 'hw/system/spatz_cluster'
 BUILD = CLUSTER / 'sw/build'
-SOURCE = ROOT / 'spatz/sw/riscvTests/isa/rv64uv'
+SOURCE = SPATZ_ROOT / 'sw/riscvTests/isa/rv64uv'
 BASE = ROOT / 'results/conv3_b8_psum_ipu4_20260915'
 LAYERS = [('Conv1',12544,147,64), ('Conv2',3136,576,64),
           ('Conv3',784,1152,128), ('Conv4',196,2304,256),

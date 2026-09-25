@@ -14,8 +14,9 @@ import shutil
 import subprocess
 import time
 
-ROOT = Path(__file__).resolve().parents[5]
-CLUSTER = ROOT / 'spatz/hw/system/spatz_cluster'
+SPATZ_ROOT = Path(__file__).resolve().parents[4]
+ROOT = Path(os.environ.get('GVSOC_ROOT', SPATZ_ROOT.parent)).resolve()
+CLUSTER = SPATZ_ROOT / 'hw/system/spatz_cluster'
 BUILD = CLUSTER / 'sw/build'
 LAYERS = [('Conv1',12544,147,64),('Conv2',3136,576,64),('Conv3',784,1152,128),
           ('Conv4',196,2304,256),('Conv5',49,4608,512),('FinalFC',1,2048,1000)]
@@ -56,7 +57,7 @@ def prepare(layer, out):
     command(['cmake','--build',BUILD,'-j','2','--target','test-riscvTests-vmvm_resnet_overlap',
              'test-riscvTests-vmvm_resnet_overlap_check'],dst/'build.log')
     artifacts={}
-    source=ROOT/'spatz/sw/riscvTests/isa/rv64uv/vmvm_resnet_overlap.c'
+    source=SPATZ_ROOT/'sw/riscvTests/isa/rv64uv/vmvm_resnet_overlap.c'
     shutil.copy2(source,dst/source.name)
     artifacts['source_sha256']=sha(source)
     for suffix,variant in [('', 'timing'),('_check','check')]:
