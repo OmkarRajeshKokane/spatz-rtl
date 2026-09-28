@@ -4,11 +4,14 @@ This branch contains the DIMC hardware and the three SFVQMMACC C tests. It is
 based on Spatz commit `04a9859`; the repository's `main` branch is a newer
 upstream snapshot and does not yet include this hardware.
 
-From the repository root, install the project tools as described in `README.md`
-(`make all`), then build the cluster simulator and software:
+From the repository root, install the project tools, then build the cluster
+simulator and software. Use `make bender toolchain` here: the `make all` target
+regenerates `riscv_instr.sv` and would overwrite the DIMC instruction decode:
 
 ```sh
-python3 -m pip install --user hjson jstyleson
+python3 -m pip install --user hjson jstyleson jsonref jsonschema mako
+make bender toolchain CMAKE=cmake CC=gcc CXX=g++
+make sw/toolchain/riscv-opcodes/encoding.h
 cd hw/system/spatz_cluster
 make sw.vlt CMAKE=cmake PYTHON=python3 CC=gcc CXX=g++ VLT_JOBS=4
 ```
