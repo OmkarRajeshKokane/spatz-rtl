@@ -9,6 +9,7 @@
 #include "sim.hh"
 #include "tb_lib.hh"
 #include "verilated.h"
+#include "verilated_vcd_c.h"
 namespace sim {
 
 Sim* s;
@@ -22,6 +23,17 @@ int TIME = 0;
 
 Sim::Sim(int argc, char **argv) : htif_t(argc, argv) {
     Verilated::commandArgs(argc, argv);
+    for (int i = 1; i < argc; i++) {
+        std::string arg(argv[i]);
+        if (arg == "+vcd" || arg == "+trace") {
+            vlt_vcd = true;
+        } else if (arg.rfind("+vcdfile=", 0) == 0) {
+            vlt_vcd = true;
+            vlt_vcd_file = arg.substr(std::string("+vcdfile=").size());
+        } else if (arg.rfind("+progress=", 0) == 0) {
+            vlt_progress_cycles = std::stoull(arg.substr(10));
+        }
+    }
 }
 
 void Sim::idle() { target.switch_to(); }
@@ -41,13 +53,25 @@ int Sim::run() {
 
 void Sim::main() {
     // Initialize verilator environment.
-    Verilated::traceEverOn(true);
+    Verilated::traceEverOn(vlt_vcd);
 
     // Create a pointer to ourselves
     s = this;
 
     // Allocate the simulation state.
     auto top = std::make_unique<Vtestharness>();
+    std::unique_ptr<VerilatedVcdC> tfp;
+    if (vlt_vcd) {
+#ifndef SPATZ_NO_WAVEFORM
+        tfp = std::make_unique<VerilatedVcdC>();
+        top->trace(tfp.get(), 99);
+        tfp->open(vlt_vcd_file.c_str());
+        fprintf(stderr, "[Tracer] Writing VCD waveform to %s\n", vlt_vcd_file.c_str());
+#else
+        fprintf(stderr, "VCD requested from a simulator built without --trace\n");
+        std::exit(1);
+#endif
+    }
 
     bool clk_i = 0, rst_ni = 0;
 
@@ -58,12 +82,21 @@ void Sim::main() {
         top->rst_ni = rst_ni;
         // Evaluate the DUT.
         top->eval();
+        if (tfp) {
+            tfp->dump(TIME);
+        }
         // Increase global time.
         TIME++;
+        if (vlt_progress_cycles && TIME % (2 * vlt_progress_cycles) == 0) {
+            fprintf(stderr, "[PROGRESS] simulated_cycles=%d\n", TIME / 2);
+        }
         // Switch to the HTIF interface in regular intervals.
         if (TIME % HTIFTimeInterval == 0) {
             host->switch_to();
         }
+    }
+    if (tfp) {
+        tfp->close();
     }
 }
 }  // namespace sim

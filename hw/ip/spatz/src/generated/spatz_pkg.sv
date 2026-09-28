@@ -13,9 +13,9 @@ package spatz_pkg;
   //////////////////
 
   // Number of IPUs in each VFU (between 1 and 8)
-  localparam int unsigned N_IPU = 1;
+  localparam int unsigned N_IPU = 4;
   // Number of FPUs in each VFU (between 1 and 8)
-  localparam int unsigned N_FPU = 4;
+  localparam int unsigned N_FPU = 1;
   // Number of FUs in each VFU
   localparam int unsigned N_FU  = N_IPU > N_FPU ? N_IPU : N_FPU;
   // FPU support
@@ -32,7 +32,7 @@ package spatz_pkg;
   // Maximum size of a single vector element in bytes
   localparam int unsigned ELENB  = ELEN / 8;
   // Number of bits in a vector register
-  localparam int unsigned VLEN   = 512;
+  localparam int unsigned VLEN   = 1024;
   // Number of bytes in a vector register
   localparam int unsigned VLENB  = VLEN / 8;
   // Maximum vector length in elements
@@ -125,7 +125,9 @@ package spatz_pkg;
     VFADD, VFSUB, VFMUL,
     VFMINMAX, VFSGNJ, VFCMP, VFCLASS,
     VF2I, VF2U, VI2F, VU2F, VF2F,
-    VFMADD, VFMSUB, VFNMSUB, VFNMADD, VSDOTP
+    VFMADD, VFMSUB, VFNMSUB, VFNMADD, VSDOTP,
+    // DIMC custom instructions
+    DIMC_OP
   } op_e;
 
   // Execution units
@@ -144,16 +146,34 @@ package spatz_pkg;
   // Spatz request //
   ///////////////////
 
+  typedef enum logic [1:0] {
+    CSR_OP_NONE,
+    CSR_OP_WRITE,
+    CSR_OP_SET,
+    CSR_OP_CLEAR
+  } csr_op_e;
+
+  typedef struct packed {
+    logic [2:0] ci;
+    logic [1:0] kernel_group;
+    logic       imm;
+    logic       kernel_load;
+    logic       feature_reuse;
+    logic       compute_reuse;
+  } dimc_cfg_t;
+
   typedef struct packed {
     logic keep_vl;
     logic write_vstart;
     logic set_vstart;
     logic clear_vstart;
     logic reset_vstart;
+    dimc_cfg_t dimc;
   } op_cfg_t;
 
   typedef struct packed {
     logic [11:0] addr;
+    csr_op_e op;
   } op_csr_t;
 
   typedef struct packed {

@@ -475,10 +475,105 @@ module spatz_cc
   // --------------------------
   // Tracer
   // --------------------------
+`ifndef SPATZ_DISABLE_TRACER
   // pragma translate_off
   int           f;
   string        fn;
   logic  [63:0] cycle;
+  bit           vmvm_profile_trace;
+  bit           vmvm_profile_activity_only;
+  bit           vmvm_profile_first_body_only;
+  int unsigned  vmvm_profile_sample_body;
+  bit           vmvm_boundary_trace_active;
+  bit           vmvm_body_trace_active;
+  bit           vmvm_trace_next_issue;
+  logic  [31:0] vmvm_profile_start_pc;
+  logic  [31:0] vmvm_profile_end_pc;
+  logic  [31:0] vmvm_profile_header_pc;
+  logic  [31:0] vmvm_profile_latch_pc;
+  logic  [31:0] vmvm_profile_dynamic_pc0;
+  logic  [31:0] vmvm_profile_dynamic_pc1;
+  logic  [31:0] vmvm_profile_dynamic_pc2;
+  logic  [31:0] vmvm_profile_body_start_pc;
+  logic  [31:0] vmvm_profile_body_end_pc;
+  logic  [63:0] vmvm_body_start_cycle;
+  logic  [63:0] vmvm_body_count;
+  logic  [63:0] vmvm_body_insn_full_start;
+  logic  [63:0] vmvm_body_insn_tail_start;
+  logic  [63:0] vmvm_body_compute_full_start;
+  logic  [63:0] vmvm_body_compute_tail_start;
+  logic  [63:0] vmvm_body_service_union_start;
+  logic  [63:0] vmvm_body_tail_capture_start;
+  logic  [63:0] vmvm_body_writeback_start;
+  logic  [63:0] vmvm_b15_dimc_insn_full;
+  logic  [63:0] vmvm_b15_dimc_insn_tail;
+  logic  [63:0] vmvm_b15_dimc_compute_full;
+  logic  [63:0] vmvm_b15_dimc_compute_tail;
+  logic  [63:0] vmvm_b15_dimc_service_union;
+  logic  [63:0] vmvm_b15_dimc_tail_capture;
+  logic  [63:0] vmvm_b15_dimc_writeback;
+
+  localparam int unsigned VmvmLatencyDimc = 0;
+  localparam int unsigned VmvmLatencyVle8 = 1;
+  localparam int unsigned VmvmLatencyVle32 = 2;
+  localparam int unsigned VmvmLatencyVse32 = 3;
+  localparam int unsigned VmvmLatencyVadd = 4;
+  localparam int unsigned VmvmLatencyOther = 5;
+  localparam int unsigned VmvmLatencyBuckets = 6;
+  bit [spatz_pkg::NrParallelInstructions-1:0] vmvm_latency_valid;
+  logic [63:0] vmvm_latency_start [spatz_pkg::NrParallelInstructions-1:0];
+  int unsigned vmvm_latency_bucket_by_id [spatz_pkg::NrParallelInstructions-1:0];
+  logic [63:0] vmvm_latency_issues [VmvmLatencyBuckets-1:0];
+  logic [63:0] vmvm_latency_completions [VmvmLatencyBuckets-1:0];
+  logic [63:0] vmvm_latency_sum [VmvmLatencyBuckets-1:0];
+  logic [63:0] vmvm_latency_min [VmvmLatencyBuckets-1:0];
+  logic [63:0] vmvm_latency_max [VmvmLatencyBuckets-1:0];
+  bit          dimc_scenario_profile;
+  bit [spatz_pkg::NrParallelInstructions-1:0] dimc_scenario_valid;
+  logic [63:0] dimc_scenario_start [spatz_pkg::NrParallelInstructions-1:0];
+  logic        dimc_scenario_kernel_load [spatz_pkg::NrParallelInstructions-1:0];
+  logic        dimc_scenario_feature_reuse [spatz_pkg::NrParallelInstructions-1:0];
+  logic        dimc_scenario_compute_reuse [spatz_pkg::NrParallelInstructions-1:0];
+  spatz_pkg::vlen_t dimc_scenario_vl [spatz_pkg::NrParallelInstructions-1:0];
+
+  function automatic int unsigned vmvm_latency_bucket(
+    input spatz_pkg::spatz_req_t req
+  );
+    unique case (req.op)
+      spatz_pkg::DIMC_OP: return VmvmLatencyDimc;
+      spatz_pkg::VLE: begin
+        unique case (req.vtype.vsew)
+          rvv_pkg::EW_8: return VmvmLatencyVle8;
+          rvv_pkg::EW_32: return VmvmLatencyVle32;
+          default: return VmvmLatencyOther;
+        endcase
+      end
+      spatz_pkg::VSE: begin
+        if (req.vtype.vsew == rvv_pkg::EW_32)
+          return VmvmLatencyVse32;
+        return VmvmLatencyOther;
+      end
+      spatz_pkg::VADD: return VmvmLatencyVadd;
+      default: return VmvmLatencyOther;
+    endcase
+  endfunction
+
+  function automatic string vmvm_latency_name(input int unsigned bucket);
+    unique case (bucket)
+      VmvmLatencyDimc: return "sf_vqmmacc";
+      VmvmLatencyVle8: return "vle8.v";
+      VmvmLatencyVle32: return "vle32.v";
+      VmvmLatencyVse32: return "vse32.v";
+      VmvmLatencyVadd: return "vadd.vv";
+      default: return "other_spatz";
+    endcase
+  endfunction
+
+  function automatic bit vmvm_dynamic_pc_match(input logic [31:0] pc);
+    return (vmvm_profile_dynamic_pc0 != '0 && pc == vmvm_profile_dynamic_pc0) ||
+           (vmvm_profile_dynamic_pc1 != '0 && pc == vmvm_profile_dynamic_pc1) ||
+           (vmvm_profile_dynamic_pc2 != '0 && pc == vmvm_profile_dynamic_pc2);
+  endfunction
 
   initial begin
     // We need to schedule the assignment into a safe region, otherwise
@@ -491,12 +586,47 @@ module spatz_cc
     $sformat(fn, "logs/trace_hart_%05x.dasm", hart_id_i);
     f = $fopen(fn, "w");
     $display("[Tracer] Logging Hart %d to %s", hart_id_i, fn);
+    vmvm_profile_trace = $test$plusargs("vmvm_profile_trace");
+    dimc_scenario_profile = $test$plusargs("dimc_scenario_profile");
+    vmvm_profile_activity_only = $test$plusargs("vmvm_profile_activity_only");
+    vmvm_profile_first_body_only = $test$plusargs("vmvm_profile_first_body_only");
+    vmvm_profile_sample_body = 0;
+    void'($value$plusargs("vmvm_profile_sample_body=%d", vmvm_profile_sample_body));
+    vmvm_profile_start_pc = '0;
+    vmvm_profile_end_pc = '0;
+    vmvm_profile_header_pc = '0;
+    vmvm_profile_latch_pc = '0;
+    vmvm_profile_dynamic_pc0 = '0;
+    vmvm_profile_dynamic_pc1 = '0;
+    vmvm_profile_dynamic_pc2 = '0;
+    vmvm_profile_body_start_pc = '0;
+    vmvm_profile_body_end_pc = '0;
+    void'($value$plusargs("vmvm_profile_start=%h", vmvm_profile_start_pc));
+    void'($value$plusargs("vmvm_profile_end=%h", vmvm_profile_end_pc));
+    void'($value$plusargs("vmvm_profile_header=%h", vmvm_profile_header_pc));
+    void'($value$plusargs("vmvm_profile_latch=%h", vmvm_profile_latch_pc));
+    void'($value$plusargs("vmvm_profile_dynamic0=%h", vmvm_profile_dynamic_pc0));
+    void'($value$plusargs("vmvm_profile_dynamic1=%h", vmvm_profile_dynamic_pc1));
+    void'($value$plusargs("vmvm_profile_dynamic2=%h", vmvm_profile_dynamic_pc2));
+    void'($value$plusargs("vmvm_profile_body_start=%h", vmvm_profile_body_start_pc));
+    void'($value$plusargs("vmvm_profile_body_end=%h", vmvm_profile_body_end_pc));
+    if (vmvm_profile_trace) begin
+      $display("[Tracer] VMVM boundary-only trace start=%08x end=%08x header=%08x latch=%08x",
+               vmvm_profile_start_pc, vmvm_profile_end_pc,
+               vmvm_profile_header_pc, vmvm_profile_latch_pc);
+      if (vmvm_profile_body_start_pc != '0) begin
+        $display("[Tracer] VMVM body trace start=%08x end=%08x",
+                 vmvm_profile_body_start_pc, vmvm_profile_body_end_pc);
+      end
+    end
   end
 
   // verilog_lint: waive-start always-ff-non-blocking
   always_ff @(posedge clk_i) begin
     automatic string trace_entry;
     automatic string extras_str;
+    automatic bit trace_snitch;
+    automatic bit dynamic_pc;
     automatic snitch_pkg::snitch_trace_port_t extras_snitch;
     automatic snitch_pkg::fpu_trace_port_t extras_fpu;
     automatic snitch_pkg::fpu_sequencer_trace_port_t extras_fpu_seq_out;
@@ -543,16 +673,228 @@ module spatz_cc
       };
 
       cycle++;
+      if (dimc_scenario_profile) begin
+        if (i_spatz.spatz_req_valid && i_spatz.vfu_req_ready &&
+            i_spatz.spatz_req.op == spatz_pkg::DIMC_OP) begin
+          automatic int unsigned issue_id = int'(i_spatz.spatz_req.id);
+          dimc_scenario_valid[issue_id] = 1'b1;
+          dimc_scenario_start[issue_id] = cycle;
+          dimc_scenario_kernel_load[issue_id] =
+              i_spatz.spatz_req.op_cfg.dimc.kernel_load;
+          dimc_scenario_feature_reuse[issue_id] =
+              i_spatz.spatz_req.op_cfg.dimc.feature_reuse;
+          dimc_scenario_compute_reuse[issue_id] =
+              i_spatz.spatz_req.op_cfg.dimc.compute_reuse;
+          dimc_scenario_vl[issue_id] = i_spatz.spatz_req.vl;
+          $display("RTL_DIMC_ISSUE id=%0d cycle=%0d kernel_load=%0d feature_load=%0d feature_reuse=%0d compute_reuse=%0d vl=%0d",
+                   issue_id, cycle,
+                   i_spatz.spatz_req.op_cfg.dimc.kernel_load,
+                   !i_spatz.spatz_req.op_cfg.dimc.feature_reuse,
+                   i_spatz.spatz_req.op_cfg.dimc.feature_reuse,
+                   i_spatz.spatz_req.op_cfg.dimc.compute_reuse,
+                   i_spatz.spatz_req.vl);
+        end
+
+        if (i_spatz.i_vfu.dimc_start) begin
+          $display("RTL_DIMC_PHASE event=start id=%0d cycle=%0d",
+                   i_spatz.spatz_req.id, cycle);
+        end
+        if (i_spatz.i_vfu.dimc_compute_fire &&
+            (i_spatz.i_vfu.dimc_row_q == 0 || i_spatz.i_vfu.dimc_row_q == 7)) begin
+          $display("RTL_DIMC_PHASE event=compute id=%0d row=%0d cycle=%0d",
+                   i_spatz.i_vfu.dimc_active_id_q,
+                   i_spatz.i_vfu.dimc_row_q, cycle);
+        end
+        if (i_spatz.i_vfu.dimc_capture_valid &&
+            (i_spatz.i_vfu.dimc_capture_row == 0 ||
+             i_spatz.i_vfu.dimc_capture_row == 7)) begin
+          $display("RTL_DIMC_PHASE event=capture id=%0d row=%0d cycle=%0d",
+                   i_spatz.i_vfu.dimc_capture_id,
+                   i_spatz.i_vfu.dimc_capture_row, cycle);
+        end
+        if (i_spatz.i_vfu.dimc_wb_accept) begin
+          $display("RTL_DIMC_PHASE event=writeback id=%0d word=%0d last=%0d cycle=%0d",
+                   i_spatz.i_vfu.dimc_write_id,
+                   i_spatz.i_vfu.dimc_write_word,
+                   i_spatz.i_vfu.dimc_write_last_word, cycle);
+        end
+
+        if (i_spatz.i_vfu.dimc_rsp_done) begin
+          automatic int unsigned done_id = int'(i_spatz.i_vfu.dimc_write_id);
+          if (dimc_scenario_valid[done_id]) begin
+            $display("RTL_DIMC_COMPLETE id=%0d issue_cycle=%0d done_cycle=%0d cycles=%0d kernel_load=%0d feature_load=%0d feature_reuse=%0d compute_reuse=%0d vl=%0d",
+                     done_id, dimc_scenario_start[done_id], cycle,
+                     cycle - dimc_scenario_start[done_id],
+                     dimc_scenario_kernel_load[done_id],
+                     !dimc_scenario_feature_reuse[done_id],
+                     dimc_scenario_feature_reuse[done_id],
+                     dimc_scenario_compute_reuse[done_id],
+                     dimc_scenario_vl[done_id]);
+            dimc_scenario_valid[done_id] = 1'b0;
+          end
+        end
+      end
+      if (vmvm_profile_trace && vmvm_body_trace_active) begin
+        if (i_spatz.spatz_req_valid && i_spatz.spatz_req.ex_unit != spatz_pkg::CON) begin
+          automatic int unsigned issue_id = int'(i_spatz.spatz_req.id);
+          automatic int unsigned issue_bucket = vmvm_latency_bucket(i_spatz.spatz_req);
+          vmvm_latency_valid[issue_id] = 1'b1;
+          vmvm_latency_start[issue_id] = cycle;
+          vmvm_latency_bucket_by_id[issue_id] = issue_bucket;
+          vmvm_latency_issues[issue_bucket]++;
+        end
+
+        if (i_spatz.vfu_rsp_valid) begin
+          automatic int unsigned completed_id = int'(i_spatz.vfu_rsp.id);
+          if (vmvm_latency_valid[completed_id]) begin
+            automatic int unsigned completed_bucket = vmvm_latency_bucket_by_id[completed_id];
+            automatic logic [63:0] latency = cycle - vmvm_latency_start[completed_id];
+            vmvm_latency_valid[completed_id] = 1'b0;
+            vmvm_latency_completions[completed_bucket]++;
+            vmvm_latency_sum[completed_bucket] += latency;
+            if (latency < vmvm_latency_min[completed_bucket])
+              vmvm_latency_min[completed_bucket] = latency;
+            if (latency > vmvm_latency_max[completed_bucket])
+              vmvm_latency_max[completed_bucket] = latency;
+          end
+        end
+
+        if (i_spatz.vlsu_rsp_valid) begin
+          automatic int unsigned completed_id = int'(i_spatz.vlsu_rsp.id);
+          if (vmvm_latency_valid[completed_id]) begin
+            automatic int unsigned completed_bucket = vmvm_latency_bucket_by_id[completed_id];
+            automatic logic [63:0] latency = cycle - vmvm_latency_start[completed_id];
+            vmvm_latency_valid[completed_id] = 1'b0;
+            vmvm_latency_completions[completed_bucket]++;
+            vmvm_latency_sum[completed_bucket] += latency;
+            if (latency < vmvm_latency_min[completed_bucket])
+              vmvm_latency_min[completed_bucket] = latency;
+            if (latency > vmvm_latency_max[completed_bucket])
+              vmvm_latency_max[completed_bucket] = latency;
+          end
+        end
+
+        if (i_spatz.vsldu_rsp_valid) begin
+          automatic int unsigned completed_id = int'(i_spatz.vsldu_rsp.id);
+          if (vmvm_latency_valid[completed_id]) begin
+            automatic int unsigned completed_bucket = vmvm_latency_bucket_by_id[completed_id];
+            automatic logic [63:0] latency = cycle - vmvm_latency_start[completed_id];
+            vmvm_latency_valid[completed_id] = 1'b0;
+            vmvm_latency_completions[completed_bucket]++;
+            vmvm_latency_sum[completed_bucket] += latency;
+            if (latency < vmvm_latency_min[completed_bucket])
+              vmvm_latency_min[completed_bucket] = latency;
+            if (latency > vmvm_latency_max[completed_bucket])
+              vmvm_latency_max[completed_bucket] = latency;
+          end
+        end
+
+        if (i_spatz.i_vfu.dimc_compute_fire) begin
+          if (i_spatz.i_vfu.dimc_row_q == '0) begin
+            // This distinguishes physical VL only. A zero-padded logical K tail
+            // still executes at VL=128 and is counted as full here.
+            if (i_spatz.i_vfu.dimc_active_vl_q == 128)
+              vmvm_b15_dimc_insn_full++;
+            else
+              vmvm_b15_dimc_insn_tail++;
+          end
+          if (i_spatz.i_vfu.dimc_active_vl_q == 128)
+            vmvm_b15_dimc_compute_full++;
+          else
+            vmvm_b15_dimc_compute_tail++;
+        end
+        if (i_spatz.i_vfu.dimc_busy || i_spatz.i_vfu.dimc_tail_pending_q ||
+            i_spatz.i_vfu.dimc_tail_done_pending_q || i_spatz.i_vfu.dimc_wb_pending_q)
+          vmvm_b15_dimc_service_union++;
+        if (i_spatz.i_vfu.dimc_tail_pending_q)
+          vmvm_b15_dimc_tail_capture++;
+        if (i_spatz.i_vfu.dimc_wb_pending_q)
+          vmvm_b15_dimc_writeback++;
+      end
       // Trace snitch iff:
       // we are not stalled <==> we have issued and processed an instruction (including offloads)
       // OR we are retiring (issuing a writeback from) a load or accelerator instruction
       if (!i_snitch.stall || i_snitch.retire_load || i_snitch.retire_acc) begin
-        $sformat(trace_entry, "%t %1d %8d 0x%h DASM(%h) #; %s\n",
-          $time, cycle, i_snitch.priv_lvl_q, i_snitch.pc_q, i_snitch.inst_data_i,
-          snitch_pkg::print_snitch_trace(extras_snitch));
-        $fwrite(f, trace_entry);
+        trace_snitch = !vmvm_profile_trace;
+        if (vmvm_profile_trace && !i_snitch.stall) begin
+          dynamic_pc = vmvm_dynamic_pc_match(i_snitch.pc_q);
+          trace_snitch = vmvm_boundary_trace_active ||
+                          (vmvm_body_trace_active && !vmvm_profile_activity_only) ||
+                          vmvm_trace_next_issue ||
+                          i_snitch.pc_q == vmvm_profile_start_pc ||
+                          i_snitch.pc_q == vmvm_profile_end_pc ||
+                          i_snitch.pc_q == vmvm_profile_header_pc ||
+                          i_snitch.pc_q == vmvm_profile_latch_pc || dynamic_pc;
+          trace_snitch = trace_snitch ||
+                          i_snitch.pc_q == vmvm_profile_body_start_pc ||
+                          i_snitch.pc_q == vmvm_profile_body_end_pc;
+          vmvm_trace_next_issue = dynamic_pc;
+          if (i_snitch.pc_q == vmvm_profile_latch_pc) begin
+            vmvm_boundary_trace_active = 1'b1;
+          end
+          if (i_snitch.pc_q == vmvm_profile_header_pc) begin
+            vmvm_boundary_trace_active = 1'b0;
+          end
+          if (i_snitch.pc_q == vmvm_profile_end_pc) begin
+            vmvm_boundary_trace_active = 1'b0;
+          end
+          if (i_snitch.pc_q == vmvm_profile_body_start_pc) begin
+            vmvm_body_trace_active = 1'b1;
+            vmvm_body_start_cycle = cycle;
+            vmvm_body_count++;
+            vmvm_body_insn_full_start = vmvm_b15_dimc_insn_full;
+            vmvm_body_insn_tail_start = vmvm_b15_dimc_insn_tail;
+            vmvm_body_compute_full_start = vmvm_b15_dimc_compute_full;
+            vmvm_body_compute_tail_start = vmvm_b15_dimc_compute_tail;
+            vmvm_body_service_union_start = vmvm_b15_dimc_service_union;
+            vmvm_body_tail_capture_start = vmvm_b15_dimc_tail_capture;
+            vmvm_body_writeback_start = vmvm_b15_dimc_writeback;
+          end
+          if (i_snitch.pc_q == vmvm_profile_body_end_pc) begin
+            vmvm_body_trace_active = 1'b0;
+            if (vmvm_profile_first_body_only ||
+                (vmvm_profile_sample_body != 0 &&
+                 vmvm_body_count == vmvm_profile_sample_body)) begin
+              $display("RTL_B15_BODY_SAMPLE body=%0d body_cycles=%0d insn_full=%0d insn_tail=%0d compute_full=%0d compute_tail=%0d service_union=%0d tail_capture=%0d writeback=%0d",
+                       vmvm_body_count, cycle - vmvm_body_start_cycle,
+                       vmvm_b15_dimc_insn_full - vmvm_body_insn_full_start,
+                       vmvm_b15_dimc_insn_tail - vmvm_body_insn_tail_start,
+                       vmvm_b15_dimc_compute_full - vmvm_body_compute_full_start,
+                       vmvm_b15_dimc_compute_tail - vmvm_body_compute_tail_start,
+                       vmvm_b15_dimc_service_union - vmvm_body_service_union_start,
+                       vmvm_b15_dimc_tail_capture - vmvm_body_tail_capture_start,
+                       vmvm_b15_dimc_writeback - vmvm_body_writeback_start);
+              $finish;
+            end
+          end
+        end
+        if (trace_snitch) begin
+          $sformat(trace_entry, "%t %1d %8d 0x%h DASM(%h) #; %s\n",
+            $time, cycle, i_snitch.priv_lvl_q, i_snitch.pc_q, i_snitch.inst_data_i,
+            snitch_pkg::print_snitch_trace(extras_snitch));
+          $fwrite(f, trace_entry);
+        end
+          if (vmvm_profile_trace && !i_snitch.stall &&
+              i_snitch.pc_q == vmvm_profile_end_pc) begin
+            $display("RTL_BOUNDARY_PROFILE_COMPLETE cycles=%0d", cycle);
+            $display("RTL_B15_DIMC_ACTIVITY insn_full=%0d insn_tail=%0d compute_full=%0d compute_tail=%0d service_union=%0d tail_capture=%0d writeback=%0d",
+                     vmvm_b15_dimc_insn_full, vmvm_b15_dimc_insn_tail,
+                     vmvm_b15_dimc_compute_full, vmvm_b15_dimc_compute_tail,
+                     vmvm_b15_dimc_service_union, vmvm_b15_dimc_tail_capture,
+                     vmvm_b15_dimc_writeback);
+            for (int unsigned bucket = 0; bucket < VmvmLatencyBuckets; bucket++) begin
+              if (vmvm_latency_issues[bucket] != 0) begin
+                $display("RTL_SPATZ_LATENCY instruction=%s issues=%0d completions=%0d latency_sum=%0d latency_min=%0d latency_max=%0d",
+                         vmvm_latency_name(bucket), vmvm_latency_issues[bucket],
+                         vmvm_latency_completions[bucket], vmvm_latency_sum[bucket],
+                         vmvm_latency_completions[bucket] == 0 ? 0 : vmvm_latency_min[bucket],
+                         vmvm_latency_max[bucket]);
+              end
+            end
+            $finish;
+        end
       end
-      if (FPEn) begin
+      if (FPEn && !vmvm_profile_trace) begin
         // Trace FPU iff:
         // an incoming handshake on the accelerator bus occurs <==> an instruction was issued
         // OR an FPU result is ready to be written back to an FPR register or the bus
@@ -568,6 +910,43 @@ module spatz_cc
       end
     end else begin
       cycle <= '0;
+      vmvm_boundary_trace_active = 1'b0;
+      vmvm_body_trace_active = 1'b0;
+      vmvm_trace_next_issue = 1'b0;
+      vmvm_body_start_cycle <= '0;
+      vmvm_body_count <= '0;
+      vmvm_body_insn_full_start <= '0;
+      vmvm_body_insn_tail_start <= '0;
+      vmvm_body_compute_full_start <= '0;
+      vmvm_body_compute_tail_start <= '0;
+      vmvm_body_service_union_start <= '0;
+      vmvm_body_tail_capture_start <= '0;
+      vmvm_body_writeback_start <= '0;
+      vmvm_b15_dimc_insn_full <= '0;
+      vmvm_b15_dimc_insn_tail <= '0;
+      vmvm_b15_dimc_compute_full <= '0;
+      vmvm_b15_dimc_compute_tail <= '0;
+      vmvm_b15_dimc_service_union <= '0;
+      vmvm_b15_dimc_tail_capture <= '0;
+      vmvm_b15_dimc_writeback <= '0;
+      vmvm_latency_valid <= '0;
+      dimc_scenario_valid <= '0;
+      for (int unsigned id = 0; id < spatz_pkg::NrParallelInstructions; id++) begin
+        vmvm_latency_start[id] <= '0;
+        vmvm_latency_bucket_by_id[id] <= VmvmLatencyOther;
+        dimc_scenario_start[id] <= '0;
+        dimc_scenario_kernel_load[id] <= 1'b0;
+        dimc_scenario_feature_reuse[id] <= 1'b0;
+        dimc_scenario_compute_reuse[id] <= 1'b0;
+        dimc_scenario_vl[id] <= '0;
+      end
+      for (int unsigned bucket = 0; bucket < VmvmLatencyBuckets; bucket++) begin
+        vmvm_latency_issues[bucket] <= '0;
+        vmvm_latency_completions[bucket] <= '0;
+        vmvm_latency_sum[bucket] <= '0;
+        vmvm_latency_min[bucket] <= '1;
+        vmvm_latency_max[bucket] <= '0;
+      end
     end
   end
 
@@ -576,6 +955,7 @@ module spatz_cc
   end
   // verilog_lint: waive-stop always-ff-non-blocking
   // pragma translate_on
+`endif
 
   `ASSERT_INIT(BootAddrAligned, BootAddr[1:0] == 2'b00)
 

@@ -59,6 +59,8 @@ VLT_FLAGS    += -Wno-PINMISSING
 VLT_FLAGS    += -Wno-fatal
 VLT_FLAGS    += --unroll-count 1024
 VLT_FLAGS    += --timing
+VLT_FLAGS    += --trace
+VLT_JOBS     ?= $(shell nproc)
 VLT_BENDER   += -t rtl -t spatz -t spatz_test -t snitch_test --define COMMON_CELLS_ASSERTS_OFF
 VLT_SOURCES  := $(shell ${BENDER} script flist ${VLT_BENDER} | ${SED_SRCS})
 VLT_CFLAGS   += -std=c++17 -fcoroutines
@@ -121,7 +123,7 @@ define VERILATE
 	$(BENDER) script verilator ${VLT_BENDER} ${DEFS} > $(dir $@)files
 	$(VLT) \
 		--Mdir $(dir $@) -f $(dir $@)files $(VLT_FLAGS) \
-		-j $(shell nproc) --cc --build --top-module $(1)
+		-j $(VLT_JOBS) --cc --build --top-module $(1)
 	touch $@
 endef
 

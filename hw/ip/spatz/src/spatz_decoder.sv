@@ -1681,6 +1681,30 @@ module spatz_decoder
             illegal_instr = 1'b1;
         end
 
+        riscv_instr::SF_VQMMACC: begin
+          automatic logic [2:0] dimc_ci           = decoder_req_i.instr[22:20];
+          automatic logic [1:0] dimc_kernel_group = decoder_req_i.instr[24:23];
+
+          spatz_req.op      = DIMC_OP;
+          spatz_req.ex_unit = VFU;
+
+          spatz_req.vd     = decoder_req_i.instr[11:7];
+          spatz_req.use_vd = 1'b1;
+
+          spatz_req.vs1     = decoder_req_i.instr[19:15];
+          spatz_req.use_vs1 = 1'b1;
+
+          spatz_req.vs2     = vreg_t'({dimc_kernel_group, 3'b000});
+          spatz_req.use_vs2 = 1'b1;
+
+          spatz_req.op_cfg.dimc.ci           = dimc_ci;
+          spatz_req.op_cfg.dimc.kernel_group = dimc_kernel_group;
+          spatz_req.op_cfg.dimc.imm          = decoder_req_i.instr[25];
+          spatz_req.op_cfg.dimc.kernel_load  = 1'b1;
+          spatz_req.op_cfg.dimc.feature_reuse = 1'b0;
+          spatz_req.op_cfg.dimc.compute_reuse = 1'b0;
+        end
+
         // CSR instruction
         riscv_instr::CSRRW,
         riscv_instr::CSRRS,
@@ -1708,7 +1732,10 @@ module spatz_decoder
             riscv_instr::CSR_VLENB,
             riscv_instr::CSR_VXSAT,
             riscv_instr::CSR_VXRM,
-            riscv_instr::CSR_VCSR: begin
+            riscv_instr::CSR_VCSR,
+            riscv_instr::CSR_DIMC_KERNEL,
+            riscv_instr::CSR_DIMC_FEATURE_REUSE,
+            riscv_instr::CSR_DIMC_COMPUTE_REUSE: begin
               spatz_req.op_csr.addr = csr_addr;
             end
             default: illegal_instr = 1'b1;
@@ -1717,21 +1744,27 @@ module spatz_decoder
           // Check type of CSR access (read/write)
           unique casez (decoder_req_i.instr)
             riscv_instr::CSRRW,
-            riscv_instr::CSRRWI:
+            riscv_instr::CSRRWI: begin
+              spatz_req.op_csr.op = CSR_OP_WRITE;
               if (csr_addr == riscv_instr::CSR_VSTART) begin
                 spatz_req.use_rd              = csr_rd != '0;
                 spatz_req.op_cfg.write_vstart = 1'b1;
               end
+            end
 
             riscv_instr::CSRRS,
-            riscv_instr::CSRRSI:
+            riscv_instr::CSRRSI: begin
+              spatz_req.op_csr.op = csr_rs1 != '0 ? CSR_OP_SET : CSR_OP_NONE;
               if (csr_addr == riscv_instr::CSR_VSTART)
                 spatz_req.op_cfg.set_vstart = csr_rs1 != '0;
+            end
 
             riscv_instr::CSRRC,
-            riscv_instr::CSRRCI:
+            riscv_instr::CSRRCI: begin
+              spatz_req.op_csr.op = csr_rs1 != '0 ? CSR_OP_CLEAR : CSR_OP_NONE;
               if (csr_addr == riscv_instr::CSR_VSTART)
                 spatz_req.op_cfg.clear_vstart = csr_rs1 != '0;
+            end
 
             default:
               illegal_instr = 1'b1;

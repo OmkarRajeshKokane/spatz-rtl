@@ -148,7 +148,9 @@ package spatz_pkg;
     VFADD, VFSUB, VFMUL,
     VFMINMAX, VFSGNJ, VFCMP, VFCLASS,
     VF2I, VF2U, VI2F, VU2F, VF2F,
-    VFMADD, VFMSUB, VFNMSUB, VFNMADD, VSDOTP
+    VFMADD, VFMSUB, VFNMSUB, VFNMADD, VSDOTP,
+    // DIMC custom instructions
+    DIMC_OP
   } op_e;
 
   // Execution units
@@ -167,16 +169,34 @@ package spatz_pkg;
   // Spatz request //
   ///////////////////
 
+  typedef enum logic [1:0] {
+    CSR_OP_NONE,
+    CSR_OP_WRITE,
+    CSR_OP_SET,
+    CSR_OP_CLEAR
+  } csr_op_e;
+
+  typedef struct packed {
+    logic [2:0] ci;
+    logic [1:0] kernel_group;
+    logic       imm;
+    logic       kernel_load;
+    logic       feature_reuse;
+    logic       compute_reuse;
+  } dimc_cfg_t;
+
   typedef struct packed {
     logic keep_vl;
     logic write_vstart;
     logic set_vstart;
     logic clear_vstart;
     logic reset_vstart;
+    dimc_cfg_t dimc;
   } op_cfg_t;
 
   typedef struct packed {
     logic [11:0] addr;
+    csr_op_e op;
   } op_csr_t;
 
   typedef struct packed {

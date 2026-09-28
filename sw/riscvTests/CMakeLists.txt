@@ -28,6 +28,9 @@ enable_testing()
 set(SNITCH_TEST_PREFIX riscvTests-)
 
 add_snitch_test(vsetvli isa/rv64uv/vsetvli.c)
+add_snitch_test(sfvqmmacc isa/rv64uv/sfvqmmacc.c)
+add_snitch_test(sfvqmmacc_profile isa/rv64uv/sfvqmmacc_profile.c)
+add_snitch_test(sfvqmmacc_scenario_latency isa/rv64uv/sfvqmmacc_scenario_latency.c)
 
 add_snitch_test(vadd  isa/rv64uv/vadd.c)
 add_snitch_test(vsub  isa/rv64uv/vsub.c)

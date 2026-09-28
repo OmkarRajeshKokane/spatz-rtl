@@ -11,6 +11,7 @@
 #include <iostream>
 #include <memory>
 #include <set>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -48,6 +49,8 @@ struct Sim : htif_t {
     context_t *host;
     context_t target;
     bool vlt_vcd = false;
+    std::string vlt_vcd_file = "logs/wave.vcd";
+    uint64_t vlt_progress_cycles = 0;
     bool disable_preloading = false;
 };
 

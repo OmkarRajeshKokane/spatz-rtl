@@ -100,7 +100,7 @@ ${VLT_AR}: ${VLT_SOURCES} ${TB_SRCS}
 verilate: ${VLT_AR}
 
 # Build targets for verilator TB
-$(VLT_BUILDDIR)/tb/%.o: $(TB_DIR)/%.cc $(VLT_AR) ${VLT_BUILDDIR}/lib/libfesvr.a
+$(VLT_BUILDDIR)/tb/%.o: $(TB_DIR)/%.cc $(TB_DIR)/sim.hh $(TB_DIR)/tb_lib.hh $(VLT_AR) ${VLT_BUILDDIR}/lib/libfesvr.a
 	mkdir -p $(dir $@)
 	${CXX} $(CXXFLAGS) $(VLT_CFLAGS) -c $< -o $@
 $(VLT_BUILDDIR)/vlt/%.o: $(VLT_ROOT)/include/%.cpp
