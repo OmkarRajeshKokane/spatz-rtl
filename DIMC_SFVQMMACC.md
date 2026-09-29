@@ -6,10 +6,14 @@ upstream snapshot and does not yet include this hardware.
 
 From the repository root, install the project tools, then build the cluster
 simulator and software. Use `make bender toolchain` here: the `make all` target
-regenerates `riscv_instr.sv` and would overwrite the DIMC instruction decode:
+regenerates `riscv_instr.sv` and would overwrite the DIMC instruction decode.
+The two Python commands create generated RTL files needed by Bender before it
+reads the Makefile:
 
 ```sh
 python3 -m pip install --user hjson jstyleson jsonref jsonschema mako
+python3 util/clustergen.py -c hw/system/spatz_cluster/cfg/spatz_cluster.default.hjson -o hw/system/spatz_cluster/src
+python3 util/generate_bootrom.py hw/system/spatz_cluster/test/bootrom.bin -c hw/system/spatz_cluster/cfg/spatz_cluster.default.hjson --output hw/system/spatz_cluster/src/generated/bootrom.sv
 make bender toolchain CMAKE=cmake CC=gcc CXX=g++
 make sw/toolchain/riscv-opcodes/encoding.h
 cd hw/system/spatz_cluster
