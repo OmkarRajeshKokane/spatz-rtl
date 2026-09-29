@@ -24,3 +24,23 @@ Archive SHA-256:
 
 The source and build guide are on the `dimc-sfvqmmacc` branch of this
 repository.
+
+## Servers with an older C library
+
+If the normal command reports missing `GLIBC_*` or `GLIBCXX_*` versions,
+extract the accompanying Ubuntu runtime libraries and use their loader
+explicitly. This keeps the server's system libraries unchanged.
+
+```sh
+tar -xzf sfvqmmacc-ubuntu22-runtime-libs.tar.gz
+mkdir -p logs
+./lib/ld-linux-x86-64.so.2 --library-path ./lib ./bin/spatz_cluster.vlt ./tests/test-riscvTests-sfvqmmacc
+```
+
+Runtime archive SHA-256:
+
+```
+9e88cc9af9103872109b393bf8c4d449389749fe385ae1a3047b0a875f5574fd  sfvqmmacc-ubuntu22-runtime-libs.tar.gz
+```
+
+The runtime archive includes copyright notices for the bundled libraries.
