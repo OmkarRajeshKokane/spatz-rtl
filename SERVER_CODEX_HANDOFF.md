@@ -67,3 +67,16 @@ full LLVM history clone unless it is truly necessary. Never use the root
 regenerates `hw/ip/snitch/src/riscv_instr.sv` and would erase the custom DIMC
 opcode and CSR definitions. Preserve the user's local work and do not use
 sudo.
+
+## Custom LLVM source transfer
+
+The local custom LLVM changes are now published on
+`OmkarRajeshKokane/LLVM_toolchain_full` branch `dimc-llvm-v0.2`, commit
+`e08b4fa4472205326227bc5ec719ff580c8c3e3f`. This Spatz branch also has
+`patches/llvm-xdimc-v0.2.patch`, a small complete diff from its pinned upstream
+LLVM revision `b494f2d8dde88723026db8ec16ac6c7ee1e140ca`, plus application
+instructions in `LLVM_SERVER.md`. `llvm-tblgen -gen-instr-info` completed
+successfully with both `SF_VQMMACC` and `SF_VQMMACC16` generated. The patch
+moves LLVM **source** to the server via `git pull`; it does not provide a
+rebuilt compiler. Check the state of any existing server LLVM checkout before
+applying it, and avoid applying it twice over the fork's prior DIMC commit.
