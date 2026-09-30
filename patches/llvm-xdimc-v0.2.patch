@@ -1,0 +1,150 @@
+diff --git a/llvm/lib/Support/RISCVISAInfo.cpp b/llvm/lib/Support/RISCVISAInfo.cpp
+index 594133c7ef38..8a05cc4a97eb 100644
+--- a/llvm/lib/Support/RISCVISAInfo.cpp
++++ b/llvm/lib/Support/RISCVISAInfo.cpp
+@@ -93,6 +93,7 @@ static const RISCVSupportedExtension SupportedExtensions[] = {
+     {"zve64x", RISCVExtensionVersion{1, 0}},
+     {"zve64f", RISCVExtensionVersion{1, 0}},
+     {"zve64d", RISCVExtensionVersion{1, 0}},
++    {"xdimc", RISCVExtensionVersion{0, 2}},
+     // Snitch extensions
+     {"xssr", RISCVExtensionVersion{0, 1}},
+     {"xdma", RISCVExtensionVersion{0, 1}},
+diff --git a/llvm/lib/Target/RISCV/RISCV.td b/llvm/lib/Target/RISCV/RISCV.td
+index 795fa06bb015..239d3c5dc42b 100644
+--- a/llvm/lib/Target/RISCV/RISCV.td
++++ b/llvm/lib/Target/RISCV/RISCV.td
+@@ -454,8 +454,19 @@ def FeatureExtXmempool
+ def HasExtXmempool : Predicate<"Subtarget->hasExtXmempool()">,
+                            AssemblerPredicate<(all_of FeatureExtXmempool),
+                            "'Xmempool' (MemPool System)">;
++//==========================================================================================
++// DIMC extension below 
+ 
++def FeatureExtXdimc :
++  SubtargetFeature<"xdimc", "HasExtXdimc", "true",
++                   "'xdimc' (DIMC custom extension)">;
+ 
++def HasExtXdimc :
++  Predicate<"Subtarget->hasExtXdimc()">,
++                           AssemblerPredicate<(all_of FeatureExtXdimc),
++                           "'Xdimc' (DIMC System)">;
++
++//===========================================================================================
+ //===----------------------------------------------------------------------===//
+ // Named operands for CSR instructions.
+ //===----------------------------------------------------------------------===//
+diff --git a/llvm/lib/Target/RISCV/RISCVInstrInfo.td b/llvm/lib/Target/RISCV/RISCVInstrInfo.td
+index cfded525d024..eff1089c0830 100644
+--- a/llvm/lib/Target/RISCV/RISCVInstrInfo.td
++++ b/llvm/lib/Target/RISCV/RISCVInstrInfo.td
+@@ -1586,3 +1586,5 @@ include "RISCVInstrInfoXdma.td"
+ include "RISCVInstrInfoXssr.td"
+ include "RISCVInstrInfoXsmallfloat.td"
+ include "RISCVInstrInfoXpulp.td"
++include "RISCVInstrInfoXDIMC.td"
++
+diff --git a/llvm/lib/Target/RISCV/RISCVInstrInfoXDIMC.td b/llvm/lib/Target/RISCV/RISCVInstrInfoXDIMC.td
+new file mode 100644
+index 000000000000..b5d7e4fa4195
+--- /dev/null
++++ b/llvm/lib/Target/RISCV/RISCVInstrInfoXDIMC.td
+@@ -0,0 +1,86 @@
++//===----------------------------------------------------------------------===//
++// Xdimc - Custom DIMC Vector Extension
++//===----------------------------------------------------------------------===//
++//def OPC_DIMC      : RISCVOpcode<"DIMC",       0b1101011>; // older custom ime instruction
++/*
++let Predicates = [HasExtXdimc] in {
++
++  let hasSideEffects = 1,
++      mayLoad = 1,
++      mayStore = 1 in {
++
++    def DIMC_1 : RVInstI<0b001, OPC_DIMC,
++                         (outs VR:$vd), (ins VR:$vs1, simm12:$imm12),
++                         "dimc1", "$vd, $vs1, $imm12">;
++
++    def DIMC_2 : RVInstI<0b010, OPC_DIMC,
++                         (outs VR:$vd), (ins VR:$vs1, simm12:$imm12),
++                         "dimc2", "$vd, $vs1, $imm12">;
++
++    def DIMC_4 : RVInstI<0b100, OPC_DIMC,
++                         (outs VR:$vd), (ins VR:$vs1, simm12:$imm12),
++                         "dimc4", "$vd, $vs1, $imm12">;
++
++    def DIMC_5 : RVInstI<0b101, OPC_DIMC,
++                         (outs VR:$vd), (ins VR:$vs1, simm12:$imm12),
++                         "dimc5", "$vd, $vs1, $imm12">;
++
++  }
++}
++ */
++
++ let Predicates = [HasExtXdimc] in {
++
++  let hasSideEffects = 1,
++      mayLoad = 1,
++      mayStore = 1 in {
++
++    def SF_VQMMACC :
++  RVInst<(outs VR:$vd),
++         (ins  VR:$vs1, uimm3:$ci, uimm2:$vs2, uimm1:$vm),
++         "sf.vqmmacc", "$vd, $vs2, $vs1, $ci, $vm",
++         [], InstFormatOther> {
++
++  bits<5> vd;
++  bits<5> vs1;
++  bits<3> ci;
++  bits<2> vs2;
++  bit     vm;
++
++  let Inst{31-26} = 0b101110; // funct6
++  let Inst{25}    = vm;
++  let Inst{24-23} = vs2;
++  let Inst{22-20} = ci;
++  let Inst{19-15} = vs1;
++  let Inst{14-12} = 0b000;    // funct3
++  let Inst{11-7}  = vd;
++  let Inst{6-0}   = 0x77;     // opcode
++}
++
++    def SF_VQMMACC16 :
++  RVInst<(outs VR:$vd),
++         (ins  VR:$vs1, uimm3:$ci, uimm2:$vs2, uimm1:$vm),
++         "sf.vqmmacc16", "$vd, $vs2, $vs1, $ci, $vm",
++         [], InstFormatOther> {
++
++  bits<5> vd;
++  bits<5> vs1;
++  bits<3> ci;
++  bits<2> vs2;
++  bit     vm;
++
++  let Inst{31-26} = 0b101110; // funct6
++  let Inst{25}    = vm;
++  let Inst{24-23} = vs2;
++  let Inst{22-20} = ci;
++  let Inst{19-15} = vs1;
++  let Inst{14-12} = 0b001;    // funct3
++  let Inst{11-7}  = vd;
++  let Inst{6-0}   = 0x77;     // opcode
++}
++
++
++    
++
++  }
++}
+diff --git a/llvm/lib/Target/RISCV/RISCVSubtarget.h b/llvm/lib/Target/RISCV/RISCVSubtarget.h
+index 57044e5721ab..a691fd1de74c 100644
+--- a/llvm/lib/Target/RISCV/RISCVSubtarget.h
++++ b/llvm/lib/Target/RISCV/RISCVSubtarget.h
+@@ -106,6 +106,7 @@ private:
+   bool HasExtXdma = false;
+   bool HasExtXssr = false;
+   bool HasExtXmempool = false;
++  bool HasExtXdimc = false;
+   // <-- Start of smallfloat extensions
+   bool HasExtXfalthalf = false;
+   bool HasExtXfquarter = false;
